@@ -1,4 +1,4 @@
-const Settings = (props) => {
+window.Settings = (props) => {
     const {
         settingsTab, setSettingsTab, settings, selectedPlatformId, setSelectedPlatformId,
         selectedPlanId, setSelectedPlanId, selectedTypeId, setSelectedTypeId,
