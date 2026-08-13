@@ -3,16 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>لوحة التحكم - إدارة المتجر (Glassmorphism Edition)</title>
+    <title>لوحة التحكم - إدارة المتجر</title>
     
-    <!-- سكربت استعادة الرابط من صفحة 404 -->
     <script type="text/javascript">
       (function() {
         var redirect = sessionStorage.redirect;
         delete sessionStorage.redirect;
-        if (redirect && redirect != location.href) {
-          history.replaceState(null, null, redirect);
-        }
+        if (redirect && redirect != location.href) { history.replaceState(null, null, redirect); }
       })();
     </script>
 
@@ -27,31 +24,11 @@
     <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
     <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
     <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
-    
-    <!-- مكتبة الروابط -->
     <script src="https://unpkg.com/react-router-dom@5.3.4/umd/react-router-dom.min.js"></script>
 
     <style>
         :root {
-            color-scheme: dark; 
-            --bg-main: #0f172a;       
-            --primary: #38bdf8;       
-            --primary-hover: #0ea5e9; 
-            --success: #10b981;       
-            --error: #ef4444;         
-            --warning: #f59e0b;       
-            --text-main: #f8fafc;     
-            --text-muted: #cbd5e1;    
-            --glass-bg: rgba(15, 23, 42, 0.45);
-            --glass-border: rgba(255, 255, 255, 0.1);
-            --glass-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
-            --glass-blur: blur(12px);
-            --inner-bg: rgba(0, 0, 0, 0.2);
-            --input-bg: rgba(255, 255, 255, 0.05);
-            --hover-bg: rgba(255, 255, 255, 0.08);
-            --blob-1: #38bdf8;
-            --blob-2: #818cf8;
-            --transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            color-scheme: dark; --bg-main: #0f172a; --primary: #38bdf8; --primary-hover: #0ea5e9; --success: #10b981; --error: #ef4444; --warning: #f59e0b; --text-main: #f8fafc; --text-muted: #cbd5e1; --glass-bg: rgba(15, 23, 42, 0.45); --glass-border: rgba(255, 255, 255, 0.1); --glass-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37); --glass-blur: blur(12px); --inner-bg: rgba(0, 0, 0, 0.2); --input-bg: rgba(255, 255, 255, 0.05); --hover-bg: rgba(255, 255, 255, 0.08); --blob-1: #38bdf8; --blob-2: #818cf8; --transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
         }
         body, input, textarea, select, button, div, span, p, h1, h2, h3, h4, h5, h6, th, td { font-family: 'Tajawal', sans-serif !important; }
         body { background-color: var(--bg-main); color: var(--text-main); overflow-x: hidden; position: relative; }
@@ -74,18 +51,38 @@
     </style>
 </head>
 <body>
-    <div class="background-blobs">
-        <div class="blob blob-1"></div>
-        <div class="blob blob-2"></div>
-    </div>
+    <div class="background-blobs"><div class="blob blob-1"></div><div class="blob blob-2"></div></div>
     <div id="root"></div>
 
-    <!-- ترتيب تحميل الملفات مهم جداً -->
-    <script type="text/babel" src="components/login.jsx"></script>
-    <script type="text/babel" src="components/emails.jsx"></script>
-    <script type="text/babel" src="components/accounts.jsx"></script>
-    <script type="text/babel" src="components/requests.jsx"></script>
-    <script type="text/babel" src="components/settings.jsx"></script>
-    <script type="text/babel" src="components/app.jsx"></script>
+    <!-- نظام تحميل الملفات المتسلسل لضمان عملها -->
+    <script>
+        const loadScript = (src) => {
+            return new Promise((resolve, reject) => {
+                const script = document.createElement('script');
+                script.type = 'text/babel';
+                script.src = src;
+                script.onload = resolve;
+                script.onerror = reject;
+                document.body.appendChild(script);
+            });
+        };
+
+        const loadApp = async () => {
+            try {
+                // تحميل المكونات بالترتيب
+                await loadScript('components/login.jsx');
+                await loadScript('components/emails.jsx');
+                await loadScript('components/accounts.jsx');
+                await loadScript('components/requests.jsx');
+                await loadScript('components/settings.jsx');
+                // تحميل التطبيق الرئيسي أخيرًا
+                await loadScript('components/app.jsx');
+            } catch (error) {
+                console.error("Error loading scripts:", error);
+            }
+        };
+
+        loadApp();
+    </script>
 </body>
 </html>
