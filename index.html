@@ -456,7 +456,6 @@
             const [newCredEmail, setNewCredEmail] = React.useState('');
             const [newCredPass, setNewCredPass] = React.useState('');
             const [isAddEmailModalOpen, setIsAddEmailModalOpen] = React.useState(false);
-            const [isEmailListModalOpen, setIsEmailListModalOpen] = React.useState(false);
             
             const [settings, setSettings] = React.useState({ platforms: [], plans: [], subTypes: [], durations: [], combinationFields: {}, requirementsOrder: [] });
             
@@ -708,14 +707,24 @@
                         linkedRequests.forEach(req => {
                             let updatedName = '-';
                             let updatedPin = '-';
-                            if (req.profilePosition && req.profilePosition !== '-' && finalData.profiles) {
-                                const profIdx = parseInt(req.profilePosition) - 1;
-                                const prof = finalData.profiles[profIdx];
-                                if (prof) {
-                                    updatedName = prof.name || '-';
-                                    updatedPin = prof.pin || '-';
-                                }
+                            
+                            // البحث عن الملف بناءً على الآي دي أو الاندكس القديم
+                            let prof = finalData.profiles ? finalData.profiles.find(p => p.id === req.profilePosition) : null;
+                            if (!prof && req.profilePosition && req.profilePosition.length < 5 && finalData.profiles) {
+                                prof = finalData.profiles[parseInt(req.profilePosition) - 1]; // استرجاع الملف القديم إذا كان مخزن بالرقم
                             }
+
+                            if (prof) {
+                                updatedName = prof.name || '-';
+                                updatedPin = prof.pin || '-';
+                                updates[`requests/${req.id}/profilePosition`] = prof.id; // تحديث الرقم ليكون ID في الطلب
+                            } else {
+                                // في حال تم حذف الملف، نصفر بيانات الطلب الخاصة بالملف
+                                updates[`requests/${req.id}/profilePosition`] = '';
+                                updatedName = '-';
+                                updatedPin = '-';
+                            }
+                            
                             updates[`requests/${req.id}/profileName`] = updatedName;
                             updates[`requests/${req.id}/profilePin`] = updatedPin;
                         });
@@ -736,7 +745,6 @@
                         const updates = {};
                         updates[`${activeTab}/${id}`] = null;
                         
-                        // في حال حذف حساب، نقوم بتصفير ارتباط الطلبات به لعدم ضياع الطلبات
                         if (activeTab === 'accounts') {
                             const linkedRequests = requests.filter(r => r.accountId === id);
                             linkedRequests.forEach(req => {
@@ -1457,14 +1465,8 @@
                                             </span>
                                         </h3>
                                         <div className="flex flex-wrap gap-3 flex-1 justify-end items-center">
-                                            <button onClick={() => setConfirmDialog({ isOpen: true, message: 'تأكيد حذف جميع الرسائل نهائياً؟', onConfirm: () => database.ref('emails').remove() })} className="h-[42px] px-4 mr-auto bg-[rgba(239,68,68,0.1)] hover:bg-[var(--error)] text-[var(--error)] hover:text-white rounded-xl transition-all text-sm font-bold flex items-center justify-center gap-2 border border-[rgba(239,68,68,0.3)] hover:shadow-[0_0_15px_rgba(239,68,68,0.3)]">
-                                                <i className="fas fa-trash-alt text-sm"></i> حذف الكل
-                                            </button>
-                                            <button onClick={() => setIsEmailListModalOpen(true)} className="h-[42px] px-4 bg-[var(--inner-bg)] hover:bg-[var(--hover-bg)] text-[var(--text-main)] rounded-xl transition-all text-sm font-bold flex items-center justify-center gap-2 border border-[var(--glass-border)]">
-                                                <i className="fas fa-list text-sm"></i> الإيميلات المسجلة
-                                            </button>
                                             <button onClick={() => setIsAddEmailModalOpen(true)} className="h-[42px] bg-gradient-to-l from-[var(--primary)] to-[var(--primary-hover)] text-white px-5 rounded-xl text-sm font-bold transition-all duration-300 hover:-translate-y-0.5 shadow-md flex items-center justify-center gap-2 shrink-0">
-                                                <i className="fas fa-plus text-sm"></i>
+                                                <i className="fas fa-plus text-sm"></i> إضافة
                                             </button>
                                         </div>
                                     </div>
@@ -1482,10 +1484,6 @@
                                         ) : (
                                             emailsData.map((email) => {
                                                 const dateObj = new Date(email.date);
-                                                let platformName = email.from;
-                                                if (platformName.includes('<')) platformName = platformName.split('<')[0].replace(/"/g, '').trim();
-                                                else platformName = platformName.split('@')[0];
-
                                                 let pureEmail = email.from;
                                                 const emailMatch = pureEmail.match(/<([^>]+)>/);
                                                 if (emailMatch) pureEmail = emailMatch[1];
@@ -1493,13 +1491,13 @@
                                                 const isExpanded = expandedEmailId === email.id;
 
                                                 return (
-                                                    <div key={email.id} className={`bg-[var(--inner-bg)] border ${isExpanded ? 'border-[var(--primary)] shadow-[0_0_15px_rgba(56,189,248,0.15)]' : 'border-[var(--glass-border)] hover:border-[rgba(255,255,255,0.3)]'} rounded-2xl overflow-hidden transition-all duration-300 admin-panel`}>
+                                                    <div key={email.id} className={`bg-[var(--inner-bg)] border ${isExpanded ? 'border-[var(--primary)] shadow-[0_0_15px_rgba(56,189,248,0.15)]' : 'border-[var(--glass-border)] hover:border-[rgba(255,255,255,0.3)]'} rounded-2xl overflow-hidden transition-all duration-300`}>
                                                         <div 
-                                                            className="p-5 cursor-pointer hover:bg-[var(--hover-bg)] transition-colors flex flex-col gap-3"
+                                                            className="p-4 cursor-pointer hover:bg-[var(--hover-bg)] transition-colors flex flex-col gap-3"
                                                             onClick={() => setExpandedEmailId(isExpanded ? null : email.id)}
                                                         >
                                                             <div className="flex justify-between items-start gap-4">
-                                                                <h4 className={`font-bold text-lg ${isExpanded ? 'text-[var(--primary)]' : 'text-[var(--text-main)]'}`}>{email.subject || "بدون عنوان"}</h4>
+                                                                <h4 className={`font-bold text-base ${isExpanded ? 'text-[var(--primary)]' : 'text-[var(--text-main)]'}`}>{email.subject || "بدون عنوان"}</h4>
                                                                 <div className="flex items-center gap-4 shrink-0">
                                                                     <button onClick={(e) => { e.stopPropagation(); setConfirmDialog({ isOpen: true, message: 'تأكيد حذف الرسالة؟', onConfirm: () => database.ref(`emails/${email.id}`).remove() }); }} className="text-[var(--text-muted)] hover:text-[var(--error)] transition-colors p-1" title="حذف الرسالة">
                                                                         <i className="fas fa-trash-alt text-sm"></i>
@@ -1508,26 +1506,22 @@
                                                                 </div>
                                                             </div>
                                                             
-                                                            <div className="flex flex-wrap items-center gap-x-6 gap-y-3 text-sm bg-[var(--input-bg)] p-3 rounded-xl border border-[var(--glass-border)]">
-                                                                <div className="flex items-center gap-2 text-[var(--text-muted)]">
-                                                                    <span className="text-[var(--text-main)] font-semibold bg-[rgba(255,255,255,0.05)] px-3 py-1 rounded-lg border border-[var(--glass-border)] text-sm">{platformName}</span>
-                                                                </div>
-                                                                <div className="flex items-center gap-2 text-[var(--text-muted)] border-r border-[var(--glass-border)] pr-4">
-                                                                    <span className="text-[var(--text-main)] text-sm" dir="ltr">{email.to}</span>
+                                                            <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-sm bg-[var(--input-bg)] p-2 px-3 rounded-xl border border-[var(--glass-border)]">
+                                                                <div className="flex items-center gap-2 text-[var(--text-muted)] pr-2">
+                                                                    <span className="text-[var(--text-main)] text-base font-bold" dir="ltr">{email.to}</span>
                                                                 </div>
                                                                 <div className="flex items-center gap-2 text-[var(--text-muted)] mr-auto">
-                                                                    <i className="far fa-clock text-sm"></i>
                                                                     <span className="text-[var(--primary)] text-sm font-bold">{timeAgoFormatter(email.date)}</span>
                                                                 </div>
                                                             </div>
                                                         </div>
                                                         
                                                         {isExpanded && (
-                                                            <div className="p-6 border-t border-[var(--glass-border)] bg-[rgba(0,0,0,0.4)] animate-fadeIn">
+                                                            <div className="border-t border-[var(--glass-border)] bg-[rgba(0,0,0,0.4)] animate-fadeIn p-4 h-[70vh] min-h-[500px]">
                                                                 <iframe 
                                                                     srcDoc={`<base target='_blank'>${email.body || ""}`}
                                                                     sandbox="allow-same-origin allow-popups"
-                                                                    className="w-full h-[600px] bg-white rounded-xl border-none shadow-inner"
+                                                                    className="w-full h-full bg-white rounded-xl border-none shadow-inner"
                                                                 ></iframe>
                                                             </div>
                                                         )}
@@ -1645,21 +1639,21 @@
                                                     return (
                                                         <div key={item.id} className="bg-[var(--inner-bg)] border border-[var(--glass-border)] rounded-2xl p-4 flex flex-col gap-3 transition-all shadow-sm relative overflow-hidden">
                                                             
-                                                            {item.notes && item.notes.trim() !== '' && (
-                                                                <button 
-                                                                    onClick={(e) => { e.stopPropagation(); setNoteDialog({isOpen: true, text: item.notes}); }}
-                                                                    className="absolute top-3 left-3 w-6 h-6 flex items-center justify-center z-10"
-                                                                    title="عرض الملاحظات"
-                                                                >
-                                                                    <span className="absolute inline-flex h-full w-full rounded-full bg-[var(--warning)] opacity-75 animate-ping"></span>
-                                                                    <i className="fas fa-exclamation-circle text-[var(--warning)] relative z-10 text-lg drop-shadow-[0_0_5px_rgba(245,158,11,0.8)]"></i>
-                                                                </button>
-                                                            )}
-
                                                             <div className="flex items-center gap-2 flex-wrap mt-1 border-b border-[var(--glass-border)] pb-3 pl-8">
                                                                 {platformImg ? <img src={platformImg} alt={item.platform} className="w-6 h-6 rounded-md object-cover border border-[var(--glass-border)]" /> : <i className="fas fa-tv text-[var(--primary)] text-base"></i>}
                                                                 <span className="font-bold text-[var(--text-main)] text-[15px]">{item.platform || '-'}</span>
                                                                 {item.plan && item.plan !== '-' && <span className="bg-[rgba(56,189,248,0.15)] text-[var(--primary)] px-2 py-0.5 rounded text-[11px] font-bold">{item.plan}</span>}
+                                                                
+                                                                {item.notes && item.notes.trim() !== '' && (
+                                                                    <button 
+                                                                        onClick={(e) => { e.stopPropagation(); setNoteDialog({isOpen: true, text: item.notes}); }}
+                                                                        className="mr-auto w-5 h-5 flex items-center justify-center relative"
+                                                                        title="عرض الملاحظات"
+                                                                    >
+                                                                        <span className="absolute inline-flex h-full w-full rounded-full bg-[var(--warning)] opacity-75 animate-ping"></span>
+                                                                        <i className="fas fa-exclamation-circle text-[var(--warning)] relative z-10 text-sm drop-shadow-[0_0_5px_rgba(245,158,11,0.8)]"></i>
+                                                                    </button>
+                                                                )}
                                                             </div>
                                                             
                                                             <div className="flex items-center gap-1.5 flex-wrap pt-1">
@@ -1727,17 +1721,6 @@
                                                     return (
                                                         <div key={item.id} id={`request-card-${item.id}`} className="bg-[var(--inner-bg)] border border-[var(--glass-border)] rounded-2xl p-4 flex flex-col gap-3 transition-all shadow-sm relative overflow-hidden">
                                                             
-                                                            {item.notes && item.notes.trim() !== '' && (
-                                                                <button 
-                                                                    onClick={(e) => { e.stopPropagation(); setNoteDialog({isOpen: true, text: item.notes}); }}
-                                                                    className="absolute top-3 left-3 w-6 h-6 flex items-center justify-center z-10"
-                                                                    title="عرض الملاحظات"
-                                                                >
-                                                                    <span className="absolute inline-flex h-full w-full rounded-full bg-[var(--warning)] opacity-75 animate-ping"></span>
-                                                                    <i className="fas fa-exclamation-circle text-[var(--warning)] relative z-10 text-lg drop-shadow-[0_0_5px_rgba(245,158,11,0.8)]"></i>
-                                                                </button>
-                                                            )}
-
                                                             <div className="flex justify-between items-center border-b border-[var(--glass-border)] pb-2 w-full pl-8">
                                                                 <div className="flex items-center gap-2">
                                                                     {item.phoneNumber && item.phoneNumber !== '-' && (
@@ -1750,12 +1733,23 @@
                                                                 <div className="text-[14px] font-bold text-white text-left" dir="ltr">{item.phoneNumber || '-'}</div>
                                                             </div>
 
-                                                            <div className="flex items-center gap-2 flex-wrap mt-1">
+                                                            <div className="flex items-center gap-2 flex-wrap mt-1 w-full relative">
                                                                 {platformImg ? <img src={platformImg} alt={item.platform} className="w-6 h-6 rounded-md object-cover border border-[var(--glass-border)]" /> : <i className="fas fa-tv text-[var(--primary)] text-base"></i>}
                                                                 <span className="font-bold text-[var(--text-main)] text-[15px]">{item.platform || '-'}</span>
                                                                 {item.plan && item.plan !== '-' && <span className="bg-[rgba(56,189,248,0.15)] text-[var(--primary)] px-2 py-0.5 rounded text-[11px] font-bold">{item.plan}</span>}
                                                                 {item.subscriptionType && item.subscriptionType !== '-' && <span className="bg-[rgba(245,158,11,0.15)] text-[var(--warning)] px-2 py-0.5 rounded text-[11px] font-bold">{item.subscriptionType}</span>}
                                                                 {item.durationLabel && item.durationLabel !== '-' && <span className="bg-[rgba(16,185,129,0.15)] text-[var(--success)] px-2 py-0.5 rounded text-[11px] font-bold">{item.durationLabel}</span>}
+                                                                
+                                                                {item.notes && item.notes.trim() !== '' && (
+                                                                    <button 
+                                                                        onClick={(e) => { e.stopPropagation(); setNoteDialog({isOpen: true, text: item.notes}); }}
+                                                                        className="mr-auto w-5 h-5 flex items-center justify-center relative"
+                                                                        title="عرض الملاحظات"
+                                                                    >
+                                                                        <span className="absolute inline-flex h-full w-full rounded-full bg-[var(--warning)] opacity-75 animate-ping"></span>
+                                                                        <i className="fas fa-exclamation-circle text-[var(--warning)] relative z-10 text-sm drop-shadow-[0_0_5px_rgba(245,158,11,0.8)]"></i>
+                                                                    </button>
+                                                                )}
                                                             </div>
 
                                                             <div className="flex items-center gap-1.5 flex-wrap border-t border-[var(--glass-border)] pt-2 mt-1">
@@ -1864,41 +1858,6 @@
                                         <button type="submit" className="px-6 py-3 rounded-xl bg-gradient-to-l from-[var(--primary)] to-[var(--primary-hover)] text-white text-sm font-bold shadow-md hover:-translate-y-0.5 transition-all">إضافة وربط</button>
                                     </div>
                                 </form>
-                            </div>
-                        </div>
-                    )}
-
-                    {isEmailListModalOpen && (
-                        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[100] p-4">
-                            <div className="admin-panel rounded-3xl w-full max-w-lg shadow-2xl border border-[var(--glass-border)] p-6 max-h-[80vh] flex flex-col">
-                                <div className="flex justify-between items-center mb-6 pb-4 border-b border-[var(--glass-border)] shrink-0">
-                                    <h3 className="font-bold text-xl text-[var(--text-main)] flex items-center gap-2">
-                                        <i className="fas fa-list text-[var(--primary)]"></i> الإيميلات المسجلة ({emailCreds.length})
-                                    </h3>
-                                    <button onClick={() => setIsEmailListModalOpen(false)} className="w-8 h-8 rounded-full bg-[var(--inner-bg)] flex items-center justify-center text-[var(--text-muted)] hover:text-[var(--error)] transition-all"><i className="fas fa-times"></i></button>
-                                </div>
-                                <div className="overflow-y-auto flex-1 space-y-3 pr-2">
-                                    {emailCreds.length === 0 ? (
-                                        <div className="text-center p-8 text-[var(--text-muted)] bg-[var(--input-bg)] rounded-xl border border-[var(--glass-border)]">لا توجد إيميلات مربوطة حالياً.</div>
-                                    ) : (
-                                        emailCreds.map(cred => (
-                                            <div key={cred.id} className="flex justify-between items-center bg-[var(--inner-bg)] border border-[var(--glass-border)] p-4 rounded-xl hover:border-[var(--primary)] transition-all">
-                                                <div className="flex items-center gap-4">
-                                                    <span className="relative flex h-3 w-3">
-                                                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[var(--success)] opacity-75"></span>
-                                                        <span className="relative inline-flex rounded-full h-3 w-3 bg-[var(--success)]"></span>
-                                                    </span>
-                                                    <span className="text-sm font-bold text-[var(--text-main)]" dir="ltr">{cred.email}</span>
-                                                </div>
-                                                <button onClick={() => {
-                                                    setConfirmDialog({ isOpen: true, message: 'هل أنت متأكد من فك ارتباط هذا الإيميل؟', onConfirm: () => database.ref(`email_credentials/${cred.id}`).remove() });
-                                                }} className="text-[var(--text-muted)] hover:text-[var(--error)] transition-colors p-2 bg-[var(--input-bg)] hover:bg-[rgba(239,68,68,0.1)] rounded-lg">
-                                                    <i className="fas fa-unlink text-sm"></i>
-                                                </button>
-                                            </div>
-                                        ))
-                                    )}
-                                </div>
                             </div>
                         </div>
                     )}
@@ -2031,10 +1990,11 @@
                                                                             const selAcc = accounts.find(a => a.id === formData.accountId);
                                                                             if (selAcc && selAcc.profiles && selAcc.profiles.length > 0) {
                                                                                 selAcc.profiles.forEach((prof, idx) => {
-                                                                                    let count = requests.filter(r => r.accountId === formData.accountId && r.id !== formData.id && String(r.profilePosition) === String(idx + 1)).length;
+                                                                                    // نستخدم prof.id كمرجع بدلاً من (idx + 1)
+                                                                                    let count = requests.filter(r => r.accountId === formData.accountId && r.id !== formData.id && (r.profilePosition === prof.id || r.profilePosition === String(idx + 1))).length;
                                                                                     profileOptions.push({
                                                                                         label: `${prof.name || ('ملف ' + (idx + 1))} ${count > 0 ? '(بداخله '+count+')' : ''}`,
-                                                                                        value: String(idx + 1),
+                                                                                        value: prof.id || String(idx + 1),
                                                                                         disabled: false
                                                                                     });
                                                                                 });
@@ -2050,8 +2010,11 @@
                                                                                     const updates = { profilePosition: val, profileName: '', profilePin: '' };
                                                                                     if (formData.accountId) {
                                                                                         const selAcc = accounts.find(a => a.id === formData.accountId);
-                                                                                        if (selAcc && selAcc.profiles && selAcc.profiles[parseInt(val) - 1]) {
-                                                                                            const prof = selAcc.profiles[parseInt(val) - 1];
+                                                                                        // البحث بالـ ID أولاً، وإلا الاندكس كخيار بديل للطلبات القديمة
+                                                                                        let prof = selAcc.profiles ? selAcc.profiles.find(p => p.id === val) : null;
+                                                                                        if(!prof && selAcc.profiles && val.length < 5) prof = selAcc.profiles[parseInt(val) - 1];
+                                                                                        
+                                                                                        if (prof) {
                                                                                             if (prof.name) updates.profileName = prof.name;
                                                                                             if (prof.pin) updates.profilePin = prof.pin;
                                                                                         }
@@ -2196,18 +2159,12 @@
                     
                     {noteDialog.isOpen && (
                         <div className="fixed inset-0 bg-black/60 backdrop-blur-md flex items-center justify-center z-[110] p-4 animate-fadeIn">
-                            <div className="admin-panel rounded-3xl w-full max-w-[420px] flex flex-col shadow-2xl p-7 border border-[var(--glass-border)]">
-                                <div className="flex items-center gap-3 border-b border-[var(--glass-border)] pb-4 mb-4">
-                                    <div className="w-10 h-10 bg-[rgba(245,158,11,0.1)] border border-[rgba(245,158,11,0.3)] rounded-xl flex items-center justify-center shadow-[0_0_15px_rgba(245,158,11,0.2)]">
-                                        <i className="fas fa-sticky-note text-[var(--warning)]"></i>
-                                    </div>
-                                    <h3 className="text-xl font-bold text-[var(--text-main)]">الملاحظات</h3>
-                                </div>
-                                <div className="text-[var(--text-main)] whitespace-pre-wrap text-sm leading-relaxed mb-6 max-h-[300px] overflow-y-auto pr-2">
+                            <div className="admin-panel rounded-3xl w-full max-w-[420px] flex flex-col shadow-2xl p-6 border border-[var(--glass-border)] relative">
+                                <button onClick={() => setNoteDialog({ isOpen: false, text: '' })} className="absolute top-4 left-4 w-8 h-8 rounded-full bg-[var(--input-bg)] flex items-center justify-center text-[var(--text-muted)] hover:text-[var(--error)] transition-all">
+                                    <i className="fas fa-times"></i>
+                                </button>
+                                <div className="text-[var(--text-main)] whitespace-pre-wrap text-sm leading-relaxed max-h-[300px] overflow-y-auto mt-6 pr-2">
                                     {noteDialog.text}
-                                </div>
-                                <div className="flex justify-end">
-                                    <button onClick={() => setNoteDialog({ isOpen: false, text: '' })} className="px-8 py-2.5 rounded-xl text-white bg-[var(--primary)] hover:bg-[var(--primary-hover)] transition-all font-bold text-sm shadow-md">إغلاق</button>
                                 </div>
                             </div>
                         </div>
