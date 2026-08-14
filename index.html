@@ -161,12 +161,13 @@
             const selectRef = React.useRef(null);
 
             React.useEffect(() => {
+                if (!isOpen) return; // تحسين: تشغيل المستمع فقط عند فتح القائمة
                 const handleClickOutside = (event) => {
                     if (selectRef.current && !selectRef.current.contains(event.target)) setIsOpen(false);
                 };
                 document.addEventListener('mousedown', handleClickOutside);
                 return () => document.removeEventListener('mousedown', handleClickOutside);
-            }, []);
+            }, [isOpen]);
 
             const selectedLabel = value ? options.find(o => String(o.value) === String(value))?.label : placeholder;
 
@@ -218,12 +219,13 @@
             }, [value]);
 
             React.useEffect(() => {
+                if (!isOpen) return; // تحسين: تشغيل المستمع فقط عند الفتح
                 const handleClickOutside = (event) => {
                     if (pickerRef.current && !pickerRef.current.contains(event.target)) setIsOpen(false);
                 };
                 document.addEventListener('mousedown', handleClickOutside);
                 return () => document.removeEventListener('mousedown', handleClickOutside);
-            }, []);
+            }, [isOpen]);
 
             const daysInMonth = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0).getDate();
             const firstDayOfMonth = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1).getDay();
@@ -442,7 +444,6 @@
         };
 
         function MainApp({ user }) {
-            const [isSidebarCollapsed, setIsSidebarCollapsed] = React.useState(true);
             const [confirmDialog, setConfirmDialog] = React.useState({ isOpen: false, message: '', onConfirm: null });
             const [noteDialog, setNoteDialog] = React.useState({ isOpen: false, text: '' });
             const [activeTab, setActiveTab] = React.useState('requests');
@@ -513,18 +514,24 @@
                 return a.id > b.id ? -1 : (a.id < b.id ? 1 : 0);
             };
 
+            // تحسين: إضافة دوال التنظيف off() لمنع تسرب الذاكرة
             React.useEffect(() => {
-                database.ref('accounts').on('value', (snapshot) => {
+                const accountsRef = database.ref('accounts');
+                const requestsRef = database.ref('requests');
+                const settingsRef = database.ref('settings');
+                const credsRef = database.ref('email_credentials');
+
+                accountsRef.on('value', (snapshot) => {
                     const data = snapshot.val();
                     setAccounts(data ? Object.keys(data).map(key => ({ id: key, ...data[key] })).sort(sortByStartDateDesc) : []);
                 });
                 
-                database.ref('requests').on('value', (snapshot) => {
+                requestsRef.on('value', (snapshot) => {
                     const data = snapshot.val();
                     setRequests(data ? Object.keys(data).map(key => ({ id: key, ...data[key] })).sort(sortByStartDateDesc) : []);
                 });
 
-                database.ref('settings').on('value', snap => {
+                settingsRef.on('value', snap => {
                     const data = snap.val() || {};
                     const formatData = (obj) => {
                         let arr = obj ? Object.keys(obj).map(id => ({ id, ...obj[id] })) : [];
@@ -542,10 +549,17 @@
                     });
                 });
 
-                database.ref('email_credentials').on('value', (snapshot) => {
+                credsRef.on('value', (snapshot) => {
                     const data = snapshot.val();
                     setEmailCreds(data ? Object.keys(data).map(key => ({ id: key, ...data[key] })) : []);
                 });
+
+                return () => {
+                    accountsRef.off('value');
+                    requestsRef.off('value');
+                    settingsRef.off('value');
+                    credsRef.off('value');
+                }
             }, []);
 
             React.useEffect(() => {
@@ -612,10 +626,6 @@
                 }
             }, [formData.startDate, formData.durVal, formData.durUnit, activeTab]);
 
-            const filterPlatformLabel = currentFilters?.platform !== 'all' ? (settings.platforms.find(p => p.id === currentFilters.platform)?.label || currentFilters.platform) : 'all';
-            const filterPlanLabel = currentFilters?.plan !== 'all' ? (settings.plans.find(p => p.id === currentFilters.plan)?.label || currentFilters.plan) : 'all';
-            const filterSubTypeLabel = currentFilters?.subType !== 'all' ? (settings.subTypes.find(s => s.id === currentFilters.subType)?.label || currentFilters.subType) : 'all';
-
             const filterData = (dataArray) => {
                 if (!currentFilters) return dataArray;
                 let filtered = dataArray;
@@ -677,6 +687,10 @@
                 return filtered;
             };
 
+            // تحسين: حفظ النتيجة مؤقتاً لتسريع البحث
+            const filteredAccounts = React.useMemo(() => filterData(accounts), [accounts, currentFilters, activeTab, settings]);
+            const filteredRequests = React.useMemo(() => filterData(requests), [requests, currentFilters, activeTab, settings]);
+
             const handleSave = (e) => {
                 e.preventDefault();
                 const path = activeTab; 
@@ -698,28 +712,24 @@
                     newRef.set({ ...finalData, key: newRef.key });
                 } else if (modalType === 'edit') {
                     if (path === 'accounts') {
-                        // تحديث الحساب
                         const updates = {};
                         updates[`${path}/${finalData.id}`] = finalData;
                         
-                        // مزامنة الطلبات المرتبطة بالحساب
                         const linkedRequests = requests.filter(r => r.accountId === finalData.id);
                         linkedRequests.forEach(req => {
                             let updatedName = '-';
                             let updatedPin = '-';
                             
-                            // البحث عن الملف بناءً على الآي دي أو الاندكس القديم
                             let prof = finalData.profiles ? finalData.profiles.find(p => p.id === req.profilePosition) : null;
                             if (!prof && req.profilePosition && req.profilePosition.length < 5 && finalData.profiles) {
-                                prof = finalData.profiles[parseInt(req.profilePosition) - 1]; // استرجاع الملف القديم إذا كان مخزن بالرقم
+                                prof = finalData.profiles[parseInt(req.profilePosition) - 1]; 
                             }
 
                             if (prof) {
                                 updatedName = prof.name || '-';
                                 updatedPin = prof.pin || '-';
-                                updates[`requests/${req.id}/profilePosition`] = prof.id; // تحديث الرقم ليكون ID في الطلب
+                                updates[`requests/${req.id}/profilePosition`] = prof.id; 
                             } else {
-                                // في حال تم حذف الملف، نصفر بيانات الطلب الخاصة بالملف
                                 updates[`requests/${req.id}/profilePosition`] = '';
                                 updatedName = '-';
                                 updatedPin = '-';
@@ -1049,6 +1059,9 @@
                 });
                 return combinations;
             };
+            
+            // تحسين: حفظ النتيجة مؤقتاً لتسريع فتح النافذة المنبثقة
+            const combinationsMemo = React.useMemo(() => getAllCombinations(), [settings]);
 
             const selectCombination = (comb) => {
                 setFormData(prev => ({
@@ -1189,10 +1202,14 @@
                 }
             };
 
-            let fPlatformId = settings.platforms.find(p => p.label === formData.platform)?.id;
-            let fPlanId = settings.plans.find(p => p.label === formData.plan && (p.platformId === fPlatformId || p.platformName === formData.platform))?.id;
-            let fTypeId = settings.subTypes.find(s => s.label === formData.subscriptionType && (s.planId === fPlanId || s.planName === formData.plan))?.id;
-            let fDurId = settings.durations.find(d => d.label === formData.durationLabel && (d.typeId === fTypeId || d.typeName === formData.subscriptionType))?.id;
+            // تحسين: حفظ المعرفات باستخدام useMemo لمنع العمليات الحسابية المتكررة
+            const { fPlatformId, fPlanId, fTypeId, fDurId } = React.useMemo(() => {
+                let pId = settings.platforms.find(p => p.label === formData.platform)?.id;
+                let plId = settings.plans.find(p => p.label === formData.plan && (p.platformId === pId || p.platformName === formData.platform))?.id;
+                let tId = settings.subTypes.find(s => s.label === formData.subscriptionType && (s.planId === plId || s.planName === formData.plan))?.id;
+                let dId = settings.durations.find(d => d.label === formData.durationLabel && (d.typeId === tId || d.typeName === formData.subscriptionType))?.id;
+                return { fPlatformId: pId, fPlanId: plId, fTypeId: tId, fDurId: dId };
+            }, [formData, settings]);
             
             const combIdForm = getCombId(fPlatformId, fPlanId, fTypeId, fDurId);
             const reqConfigForm = settings.combinationFields[combIdForm] || {
@@ -1249,8 +1266,8 @@
                         </nav>
                     </aside>
 
-                    <main className="flex-1 flex flex-col h-screen overflow-hidden py-4 pr-0 pl-4 z-10 transition-all duration-300">
-                        <div className="flex-1 overflow-y-auto relative rounded-3xl pb-4">
+                    <main className="flex-1 flex flex-col h-screen overflow-hidden py-4 pr-0 pl-4 z-10 transition-all duration-300 min-w-0">
+                        <div className="flex-1 overflow-y-auto relative rounded-3xl pb-4 min-h-0">
                             {activeTab === 'settings' ? (
                                 <div className="flex flex-col space-y-6 pb-10">
                                     <div className="space-y-6 animate-fadeIn">
@@ -1457,7 +1474,7 @@
                                     </div>
                                 </div>
                             ) : activeTab === 'emails' ? (
-                                <div className="flex flex-col h-full relative animate-fadeIn">
+                                <div className="flex flex-col h-full relative animate-fadeIn min-h-0">
                                     <div className="admin-panel p-4 rounded-3xl mb-6 flex flex-wrap justify-between items-center gap-4 shrink-0 z-20 shadow-lg">
                                         <h3 className="font-bold text-[var(--text-main)] text-lg flex items-center gap-2">
                                             <span className="bg-[rgba(56,189,248,0.15)] text-[var(--primary)] px-2 py-0.5 rounded-lg text-sm border border-[rgba(56,189,248,0.3)]">
@@ -1465,15 +1482,15 @@
                                             </span>
                                         </h3>
                                         <div className="flex flex-wrap gap-3 flex-1 justify-end items-center">
-                                            <button onClick={() => setIsAddEmailModalOpen(true)} className="h-[42px] bg-gradient-to-l from-[var(--primary)] to-[var(--primary-hover)] text-white px-5 rounded-xl text-sm font-bold transition-all duration-300 hover:-translate-y-0.5 shadow-md flex items-center justify-center gap-2 shrink-0">
-                                                <i className="fas fa-plus text-sm"></i> إضافة
+                                            <button onClick={() => setIsAddEmailModalOpen(true)} className="h-[42px] w-12 bg-gradient-to-l from-[var(--primary)] to-[var(--primary-hover)] text-white rounded-xl text-sm font-bold transition-all duration-300 hover:-translate-y-0.5 shadow-md flex items-center justify-center shrink-0">
+                                                <i className="fas fa-plus text-sm"></i>
                                             </button>
                                         </div>
                                     </div>
                                     
-                                    <div className="flex-1 flex flex-col space-y-4 overflow-y-auto pr-2 pb-10">
+                                    <div className="flex-1 overflow-y-auto space-y-4 pr-2 pb-10 min-h-0 block">
                                         {isFetchingEmails && emailsData.length === 0 ? (
-                                            <div className="text-center p-16 text-[var(--text-muted)] flex flex-col items-center justify-center flex-1">
+                                            <div className="text-center p-16 text-[var(--text-muted)] flex flex-col items-center justify-center h-full">
                                                 <i className="fas fa-circle-notch fa-spin text-4xl mb-4 text-[var(--primary)]"></i>
                                             </div>
                                         ) : emailsData.length === 0 ? (
@@ -1484,6 +1501,10 @@
                                         ) : (
                                             emailsData.map((email) => {
                                                 const dateObj = new Date(email.date);
+                                                let platformName = email.from;
+                                                if (platformName.includes('<')) platformName = platformName.split('<')[0].replace(/"/g, '').trim();
+                                                else platformName = platformName.split('@')[0];
+
                                                 let pureEmail = email.from;
                                                 const emailMatch = pureEmail.match(/<([^>]+)>/);
                                                 if (emailMatch) pureEmail = emailMatch[1];
@@ -1491,37 +1512,65 @@
                                                 const isExpanded = expandedEmailId === email.id;
 
                                                 return (
-                                                    <div key={email.id} className={`bg-[var(--inner-bg)] border ${isExpanded ? 'border-[var(--primary)] shadow-[0_0_15px_rgba(56,189,248,0.15)]' : 'border-[var(--glass-border)] hover:border-[rgba(255,255,255,0.3)]'} rounded-2xl overflow-hidden transition-all duration-300`}>
+                                                    <div key={email.id} className={`bg-[var(--inner-bg)] border ${isExpanded ? 'border-[var(--primary)] shadow-[0_0_15px_rgba(56,189,248,0.15)]' : 'border-[var(--glass-border)] hover:border-[rgba(255,255,255,0.3)]'} rounded-2xl overflow-hidden transition-all duration-300 relative`}>
                                                         <div 
-                                                            className="p-4 cursor-pointer hover:bg-[var(--hover-bg)] transition-colors flex flex-col gap-3"
+                                                            className="p-5 cursor-pointer hover:bg-[var(--hover-bg)] transition-colors flex flex-col gap-3"
                                                             onClick={() => setExpandedEmailId(isExpanded ? null : email.id)}
                                                         >
                                                             <div className="flex justify-between items-start gap-4">
-                                                                <h4 className={`font-bold text-base ${isExpanded ? 'text-[var(--primary)]' : 'text-[var(--text-main)]'}`}>{email.subject || "بدون عنوان"}</h4>
-                                                                <div className="flex items-center gap-4 shrink-0">
+                                                                <div className="flex items-center flex-wrap gap-2 text-lg">
+                                                                    <h4 className={`font-bold ${isExpanded ? 'text-[var(--primary)]' : 'text-[var(--text-main)]'}`}>{email.subject || "بدون عنوان"}</h4>
+                                                                    <span className="text-[var(--text-muted)] opacity-50 font-normal">|</span>
+                                                                    <span className={`font-bold ${isExpanded ? 'text-[var(--primary)]' : 'text-[var(--text-main)]'}`}>{platformName}</span>
+                                                                    <span className="text-[var(--text-muted)] opacity-50 font-normal">|</span>
+                                                                    <span className={`font-bold font-mono text-[16px] ${isExpanded ? 'text-[var(--primary)]' : 'text-[var(--text-main)]'}`} dir="ltr">{email.to}</span>
+                                                                </div>
+                                                                <div className="flex items-center gap-4 shrink-0 mt-1">
+                                                                    <span className="text-[var(--primary)] text-sm font-bold">{timeAgoFormatter(email.date)}</span>
                                                                     <button onClick={(e) => { e.stopPropagation(); setConfirmDialog({ isOpen: true, message: 'تأكيد حذف الرسالة؟', onConfirm: () => database.ref(`emails/${email.id}`).remove() }); }} className="text-[var(--text-muted)] hover:text-[var(--error)] transition-colors p-1" title="حذف الرسالة">
                                                                         <i className="fas fa-trash-alt text-sm"></i>
                                                                     </button>
-                                                                    <i className={`fas fa-chevron-down text-[var(--text-muted)] text-sm transition-transform duration-300 mt-1 ${isExpanded ? 'rotate-180 text-[var(--primary)]' : ''}`}></i>
-                                                                </div>
-                                                            </div>
-                                                            
-                                                            <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-sm bg-[var(--input-bg)] p-2 px-3 rounded-xl border border-[var(--glass-border)]">
-                                                                <div className="flex items-center gap-2 text-[var(--text-muted)] pr-2">
-                                                                    <span className="text-[var(--text-main)] text-base font-bold" dir="ltr">{email.to}</span>
-                                                                </div>
-                                                                <div className="flex items-center gap-2 text-[var(--text-muted)] mr-auto">
-                                                                    <span className="text-[var(--primary)] text-sm font-bold">{timeAgoFormatter(email.date)}</span>
+                                                                    <i className={`fas fa-chevron-down text-[var(--text-muted)] text-sm transition-transform duration-300 ${isExpanded ? 'rotate-180 text-[var(--primary)]' : ''}`}></i>
                                                                 </div>
                                                             </div>
                                                         </div>
                                                         
                                                         {isExpanded && (
-                                                            <div className="border-t border-[var(--glass-border)] bg-[rgba(0,0,0,0.4)] animate-fadeIn p-4 h-[70vh] min-h-[500px]">
+                                                            <div className="border-t border-[var(--glass-border)] bg-[rgba(0,0,0,0.4)] animate-fadeIn relative">
                                                                 <iframe 
                                                                     srcDoc={`<base target='_blank'>${email.body || ""}`}
                                                                     sandbox="allow-same-origin allow-popups"
-                                                                    className="w-full h-full bg-white rounded-xl border-none shadow-inner"
+                                                                    className="w-full bg-white rounded-xl border-none shadow-inner transition-all duration-300 ease-out"
+                                                                    style={{ height: '150px', maxHeight: '600px' }}
+                                                                    onLoad={(e) => {
+                                                                        const iframe = e.target;
+                                                                        const adjustHeight = () => {
+                                                                            try {
+                                                                                const doc = iframe.contentWindow.document;
+                                                                                if (!doc.getElementById('injected-styles')) {
+                                                                                    const style = doc.createElement('style');
+                                                                                    style.id = 'injected-styles';
+                                                                                    style.textContent = `
+                                                                                        body { margin:0; padding:15px; font-family:sans-serif; overflow-y:auto; overflow-x:hidden; } 
+                                                                                        img { max-width: 100% !important; height: auto !important; }
+                                                                                        ::-webkit-scrollbar { width: 6px; }
+                                                                                        ::-webkit-scrollbar-track { background: transparent; }
+                                                                                        ::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.2); border-radius: 10px; }
+                                                                                    `;
+                                                                                    doc.head.appendChild(style);
+                                                                                }
+                                                                                const contentHeight = Math.max(doc.body.scrollHeight, doc.documentElement.scrollHeight);
+                                                                                iframe.style.height = (contentHeight + 40) + 'px';
+                                                                            } catch(err) {}
+                                                                        };
+                                                                        
+                                                                        adjustHeight(); 
+                                                                        
+                                                                        try {
+                                                                            const imgs = iframe.contentWindow.document.querySelectorAll('img');
+                                                                            imgs.forEach(img => img.addEventListener('load', adjustHeight));
+                                                                        } catch(e) {}
+                                                                    }}
                                                                 ></iframe>
                                                             </div>
                                                         )}
@@ -1536,7 +1585,7 @@
                                     <div className="admin-panel p-4 rounded-3xl mb-6 flex flex-wrap justify-between items-center gap-4 shrink-0 z-20 shadow-lg">
                                         <h3 className="font-bold text-[var(--text-main)] text-lg flex items-center gap-2">
                                             <span className="bg-[rgba(56,189,248,0.15)] text-[var(--primary)] px-2 py-0.5 rounded-lg text-sm border border-[rgba(56,189,248,0.3)]">
-                                                {filterData(activeTab === 'accounts' ? accounts : requests).length}
+                                                {activeTab === 'accounts' ? filteredAccounts.length : filteredRequests.length}
                                             </span>
                                         </h3>
                                         
@@ -1622,7 +1671,7 @@
                                     </div>
 
                                     <div className="flex-1 overflow-y-auto pb-10">
-                                        {filterData(activeTab === 'accounts' ? accounts : requests).length === 0 ? (
+                                        {(activeTab === 'accounts' ? filteredAccounts : filteredRequests).length === 0 ? (
                                             <div className="text-center p-16 text-[var(--text-muted)] flex flex-col items-center justify-center h-full">
                                                 <div className="w-20 h-20 bg-[var(--inner-bg)] border border-[var(--glass-border)] rounded-full flex items-center justify-center mb-4">
                                                     <i className="fas fa-inbox text-4xl opacity-50"></i>
@@ -1631,7 +1680,7 @@
                                             </div>
                                         ) : activeTab === 'accounts' ? (
                                             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
-                                                {filterData(accounts).map((item) => {
+                                                {filteredAccounts.map((item) => {
                                                     const subProg = calculateProgress(item.startDate, item.endDate);
                                                     const platformObj = settings.platforms.find(p => p.label === item.platform);
                                                     const platformImg = platformObj?.imageUrl;
@@ -1639,15 +1688,17 @@
                                                     return (
                                                         <div key={item.id} className="bg-[var(--inner-bg)] border border-[var(--glass-border)] rounded-2xl p-4 flex flex-col gap-3 transition-all shadow-sm relative overflow-hidden">
                                                             
-                                                            <div className="flex items-center gap-2 flex-wrap mt-1 border-b border-[var(--glass-border)] pb-3 pl-8">
-                                                                {platformImg ? <img src={platformImg} alt={item.platform} className="w-6 h-6 rounded-md object-cover border border-[var(--glass-border)]" /> : <i className="fas fa-tv text-[var(--primary)] text-base"></i>}
-                                                                <span className="font-bold text-[var(--text-main)] text-[15px]">{item.platform || '-'}</span>
-                                                                {item.plan && item.plan !== '-' && <span className="bg-[rgba(56,189,248,0.15)] text-[var(--primary)] px-2 py-0.5 rounded text-[11px] font-bold">{item.plan}</span>}
+                                                            <div className="flex justify-between items-center w-full mt-1 border-b border-[var(--glass-border)] pb-3">
+                                                                <div className="flex items-center gap-2 flex-wrap">
+                                                                    {platformImg ? <img src={platformImg} alt={item.platform} className="w-6 h-6 rounded-md object-cover border border-[var(--glass-border)]" /> : <i className="fas fa-tv text-[var(--primary)] text-base"></i>}
+                                                                    <span className="font-bold text-[var(--text-main)] text-[15px]">{item.platform || '-'}</span>
+                                                                    {item.plan && item.plan !== '-' && <span className="bg-[rgba(56,189,248,0.15)] text-[var(--primary)] px-2 py-0.5 rounded text-[11px] font-bold">{item.plan}</span>}
+                                                                </div>
                                                                 
                                                                 {item.notes && item.notes.trim() !== '' && (
                                                                     <button 
                                                                         onClick={(e) => { e.stopPropagation(); setNoteDialog({isOpen: true, text: item.notes}); }}
-                                                                        className="mr-auto w-5 h-5 flex items-center justify-center relative"
+                                                                        className="w-5 h-5 flex shrink-0 items-center justify-center relative hover:scale-110 transition-transform"
                                                                         title="عرض الملاحظات"
                                                                     >
                                                                         <span className="absolute inline-flex h-full w-full rounded-full bg-[var(--warning)] opacity-75 animate-ping"></span>
@@ -1699,7 +1750,7 @@
                                             </div>
                                         ) : (
                                             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
-                                                {filterData(requests).map((item) => {
+                                                {filteredRequests.map((item) => {
                                                     const subProg = calculateProgress(item.startDate, item.endDate);
                                                     let warProg = { expired: false, percent: 0, remaining: 0 };
                                                     let warEndStr = '';
@@ -1721,7 +1772,7 @@
                                                     return (
                                                         <div key={item.id} id={`request-card-${item.id}`} className="bg-[var(--inner-bg)] border border-[var(--glass-border)] rounded-2xl p-4 flex flex-col gap-3 transition-all shadow-sm relative overflow-hidden">
                                                             
-                                                            <div className="flex justify-between items-center border-b border-[var(--glass-border)] pb-2 w-full pl-8">
+                                                            <div className="flex justify-between items-center border-b border-[var(--glass-border)] pb-2 w-full">
                                                                 <div className="flex items-center gap-2">
                                                                     {item.phoneNumber && item.phoneNumber !== '-' && (
                                                                         <>
@@ -1733,17 +1784,19 @@
                                                                 <div className="text-[14px] font-bold text-white text-left" dir="ltr">{item.phoneNumber || '-'}</div>
                                                             </div>
 
-                                                            <div className="flex items-center gap-2 flex-wrap mt-1 w-full relative">
-                                                                {platformImg ? <img src={platformImg} alt={item.platform} className="w-6 h-6 rounded-md object-cover border border-[var(--glass-border)]" /> : <i className="fas fa-tv text-[var(--primary)] text-base"></i>}
-                                                                <span className="font-bold text-[var(--text-main)] text-[15px]">{item.platform || '-'}</span>
-                                                                {item.plan && item.plan !== '-' && <span className="bg-[rgba(56,189,248,0.15)] text-[var(--primary)] px-2 py-0.5 rounded text-[11px] font-bold">{item.plan}</span>}
-                                                                {item.subscriptionType && item.subscriptionType !== '-' && <span className="bg-[rgba(245,158,11,0.15)] text-[var(--warning)] px-2 py-0.5 rounded text-[11px] font-bold">{item.subscriptionType}</span>}
-                                                                {item.durationLabel && item.durationLabel !== '-' && <span className="bg-[rgba(16,185,129,0.15)] text-[var(--success)] px-2 py-0.5 rounded text-[11px] font-bold">{item.durationLabel}</span>}
+                                                            <div className="flex justify-between items-center w-full mt-2 border-b border-[var(--glass-border)] pb-2">
+                                                                <div className="flex items-center gap-2 flex-wrap">
+                                                                    {platformImg ? <img src={platformImg} alt={item.platform} className="w-6 h-6 rounded-md object-cover border border-[var(--glass-border)]" /> : <i className="fas fa-tv text-[var(--primary)] text-base"></i>}
+                                                                    <span className="font-bold text-[var(--text-main)] text-[15px]">{item.platform || '-'}</span>
+                                                                    {item.plan && item.plan !== '-' && <span className="bg-[rgba(56,189,248,0.15)] text-[var(--primary)] px-2 py-0.5 rounded text-[11px] font-bold">{item.plan}</span>}
+                                                                    {item.subscriptionType && item.subscriptionType !== '-' && <span className="bg-[rgba(245,158,11,0.15)] text-[var(--warning)] px-2 py-0.5 rounded text-[11px] font-bold">{item.subscriptionType}</span>}
+                                                                    {item.durationLabel && item.durationLabel !== '-' && <span className="bg-[rgba(16,185,129,0.15)] text-[var(--success)] px-2 py-0.5 rounded text-[11px] font-bold">{item.durationLabel}</span>}
+                                                                </div>
                                                                 
                                                                 {item.notes && item.notes.trim() !== '' && (
                                                                     <button 
                                                                         onClick={(e) => { e.stopPropagation(); setNoteDialog({isOpen: true, text: item.notes}); }}
-                                                                        className="mr-auto w-5 h-5 flex items-center justify-center relative"
+                                                                        className="w-5 h-5 flex shrink-0 items-center justify-center relative hover:scale-110 transition-transform"
                                                                         title="عرض الملاحظات"
                                                                     >
                                                                         <span className="absolute inline-flex h-full w-full rounded-full bg-[var(--warning)] opacity-75 animate-ping"></span>
@@ -1752,7 +1805,7 @@
                                                                 )}
                                                             </div>
 
-                                                            <div className="flex items-center gap-1.5 flex-wrap border-t border-[var(--glass-border)] pt-2 mt-1">
+                                                            <div className="flex items-center gap-1.5 flex-wrap pt-1 mt-1">
                                                                 
                                                                 {item.amountPaid > 0 && (
                                                                     <span className="bg-[rgba(255,255,255,0.15)] text-white px-2 py-0.5 rounded text-[11px] font-bold flex items-center gap-1.5" title="المبلغ">
@@ -1801,7 +1854,7 @@
 
                                                                 {item.warrantyVal > 0 && (
                                                                     <div className="flex-1 bg-[rgba(0,0,0,0.5)] rounded-md h-6 relative overflow-hidden flex items-center justify-center border border-[var(--glass-border)] shadow-inner" title="الضمان المتبقي">
-                                                                        <div className={`absolute top-0 right-0 h-full ${warProg.expired ? 'bg-[var(--error)]' : 'bg-[var(--success)]'} transition-all duration-500 opacity-60`} style={{width: `${warProg.percent}%`}}></div>
+                                                                    <div className={`absolute top-0 right-0 h-full ${warProg.expired ? 'bg-[var(--error)]' : 'bg-[var(--success)]'} transition-all duration-500 opacity-60`} style={{width: `${warProg.percent}%`}}></div>
                                                                         <span className="relative z-10 text-white font-bold text-[10px] drop-shadow-md tracking-wide flex items-center gap-1.5">
                                                                             <i className="fas fa-shield-alt text-[10px]"></i>
                                                                             <span className="mt-0.5">{warProg.expired ? 'منتهي' : formatRemainingTime(warProg.remaining).replace('متبقي ', '')}</span>
@@ -1830,12 +1883,12 @@
 
                     {isAddEmailModalOpen && (
                         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[100] p-4">
-                            <div className="admin-panel rounded-3xl w-full max-w-md shadow-2xl border border-[var(--glass-border)] p-6">
-                                <div className="flex justify-between items-center mb-6 pb-4 border-b border-[var(--glass-border)]">
-                                    <h3 className="font-bold text-xl text-[var(--text-main)] flex items-center gap-2">
-                                        <i className="fas fa-plus text-[var(--primary)]"></i> ربط إيميل جديد
-                                    </h3>
-                                    <button onClick={() => setIsAddEmailModalOpen(false)} className="w-8 h-8 rounded-full bg-[var(--inner-bg)] flex items-center justify-center text-[var(--text-muted)] hover:text-[var(--error)] transition-all"><i className="fas fa-times"></i></button>
+                            <div className="admin-panel rounded-3xl w-full max-w-lg shadow-2xl border border-[var(--glass-border)] overflow-hidden bg-[var(--bg-main)]">
+                                <div className="p-5 border-b border-[var(--glass-border)] flex justify-between items-center bg-[rgba(0,0,0,0.4)]">
+                                    <h3 className="font-bold text-xl text-[var(--text-main)] gradient-text">إضافة</h3>
+                                    <button onClick={() => setIsAddEmailModalOpen(false)} className="w-8 h-8 rounded-full bg-[var(--input-bg)] flex items-center justify-center text-[var(--text-muted)] hover:text-[var(--error)] hover:bg-[rgba(239,68,68,0.1)] transition-all text-sm">
+                                        <i className="fas fa-times text-sm"></i>
+                                    </button>
                                 </div>
                                 <form onSubmit={(e) => {
                                     e.preventDefault();
@@ -1844,18 +1897,24 @@
                                         setNewCredEmail(''); setNewCredPass('');
                                         setIsAddEmailModalOpen(false);
                                     }
-                                }} className="flex flex-col gap-4">
-                                    <div>
-                                        <label className="block text-sm font-bold text-[var(--text-main)] mb-2">الإيميل</label>
-                                        <input type="email" required dir="ltr" value={newCredEmail} onChange={e => setNewCredEmail(e.target.value)} className="w-full bg-[var(--input-bg)] border border-[var(--glass-border)] text-[var(--text-main)] rounded-xl px-4 py-3 outline-none focus:border-[var(--primary)] text-sm text-left" placeholder="example@gmail.com" />
+                                }} className="p-6">
+                                    <div className="flex flex-col gap-5">
+                                        <div>
+                                            <label className="block text-sm font-bold text-[var(--text-main)] mb-2">الإيميل</label>
+                                            <input type="email" required dir="ltr" value={newCredEmail} onChange={e => setNewCredEmail(e.target.value)} className="w-full bg-[var(--input-bg)] border border-[var(--glass-border)] text-[var(--text-main)] rounded-xl px-4 py-3 outline-none focus:border-[var(--primary)] focus:shadow-[0_0_10px_rgba(56,189,248,0.2)] text-sm font-bold text-left transition-all" placeholder="example@gmail.com" />
+                                        </div>
+                                        <div>
+                                            <label className="block text-sm font-bold text-[var(--text-main)] mb-2">كلمة مرور التطبيقات</label>
+                                            <input type="text" required dir="ltr" value={newCredPass} onChange={e => setNewCredPass(e.target.value)} className="w-full bg-[var(--input-bg)] border border-[var(--glass-border)] text-[var(--text-main)] rounded-xl px-4 py-3 outline-none focus:border-[var(--primary)] focus:shadow-[0_0_10px_rgba(56,189,248,0.2)] text-sm font-bold text-left transition-all" placeholder="xxxx xxxx xxxx xxxx" />
+                                        </div>
                                     </div>
-                                    <div>
-                                        <label className="block text-sm font-bold text-[var(--text-main)] mb-2">كلمة مرور التطبيقات</label>
-                                        <input type="text" required dir="ltr" value={newCredPass} onChange={e => setNewCredPass(e.target.value)} className="w-full bg-[var(--input-bg)] border border-[var(--glass-border)] text-[var(--text-main)] rounded-xl px-4 py-3 outline-none focus:border-[var(--primary)] text-sm text-left" placeholder="xxxx xxxx xxxx xxxx" />
-                                    </div>
-                                    <div className="mt-4 flex justify-end gap-3">
-                                        <button type="button" onClick={() => setIsAddEmailModalOpen(false)} className="px-6 py-3 rounded-xl bg-[var(--inner-bg)] border border-[var(--glass-border)] text-[var(--text-main)] text-sm font-bold hover:bg-[var(--hover-bg)] transition-all">إلغاء</button>
-                                        <button type="submit" className="px-6 py-3 rounded-xl bg-gradient-to-l from-[var(--primary)] to-[var(--primary-hover)] text-white text-sm font-bold shadow-md hover:-translate-y-0.5 transition-all">إضافة وربط</button>
+                                    <div className="mt-4 flex justify-end gap-3 pt-5 border-t border-[var(--glass-border)]">
+                                        <button type="button" onClick={() => setIsAddEmailModalOpen(false)} className="px-6 py-3 rounded-xl text-[var(--text-main)] bg-[var(--input-bg)] hover:bg-[var(--hover-bg)] border border-[var(--glass-border)] transition-all font-bold text-sm">
+                                            <i className="fas fa-times text-sm"></i>
+                                        </button>
+                                        <button type="submit" className="px-6 py-3 rounded-xl text-white bg-gradient-to-l from-[var(--primary)] to-[var(--primary-hover)] hover:-translate-y-0.5 shadow-md transition-all font-bold flex items-center gap-2 text-sm">
+                                            <i className="fas fa-save text-sm"></i>
+                                        </button>
                                     </div>
                                 </form>
                             </div>
@@ -1882,7 +1941,7 @@
                                 {activeTab === 'requests' && modalType === 'add' && reqStep === 'select' ? (
                                     <div className="p-6 overflow-y-auto flex-1 bg-transparent">
                                         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                                            {getAllCombinations().map((comb, index) => (
+                                            {combinationsMemo.map((comb, index) => (
                                                 <div key={index} onClick={() => selectCombination(comb)} className="cursor-pointer bg-[var(--inner-bg)] border border-[var(--glass-border)] hover:border-[var(--primary)] hover:bg-[var(--hover-bg)] p-4 rounded-2xl transition-all shadow-sm hover:shadow-[0_0_15px_rgba(56,189,248,0.2)] flex flex-col gap-3 group">
                                                     <div className="flex items-center gap-2 flex-wrap mt-1">
                                                         {comb.pImg ? <img src={comb.pImg} className="w-6 h-6 rounded-md object-cover border border-[var(--glass-border)]" /> : <i className="fas fa-tv text-[var(--primary)] text-base"></i>}
@@ -1893,7 +1952,7 @@
                                                     </div>
                                                 </div>
                                             ))}
-                                            {getAllCombinations().length === 0 && (
+                                            {combinationsMemo.length === 0 && (
                                                 <div className="col-span-full text-center p-8 text-[var(--text-muted)] border border-[var(--glass-border)] rounded-2xl">
                                                 </div>
                                             )}
@@ -1990,7 +2049,6 @@
                                                                             const selAcc = accounts.find(a => a.id === formData.accountId);
                                                                             if (selAcc && selAcc.profiles && selAcc.profiles.length > 0) {
                                                                                 selAcc.profiles.forEach((prof, idx) => {
-                                                                                    // نستخدم prof.id كمرجع بدلاً من (idx + 1)
                                                                                     let count = requests.filter(r => r.accountId === formData.accountId && r.id !== formData.id && (r.profilePosition === prof.id || r.profilePosition === String(idx + 1))).length;
                                                                                     profileOptions.push({
                                                                                         label: `${prof.name || ('ملف ' + (idx + 1))} ${count > 0 ? '(بداخله '+count+')' : ''}`,
@@ -2010,7 +2068,6 @@
                                                                                     const updates = { profilePosition: val, profileName: '', profilePin: '' };
                                                                                     if (formData.accountId) {
                                                                                         const selAcc = accounts.find(a => a.id === formData.accountId);
-                                                                                        // البحث بالـ ID أولاً، وإلا الاندكس كخيار بديل للطلبات القديمة
                                                                                         let prof = selAcc.profiles ? selAcc.profiles.find(p => p.id === val) : null;
                                                                                         if(!prof && selAcc.profiles && val.length < 5) prof = selAcc.profiles[parseInt(val) - 1];
                                                                                         
@@ -2160,10 +2217,10 @@
                     {noteDialog.isOpen && (
                         <div className="fixed inset-0 bg-black/60 backdrop-blur-md flex items-center justify-center z-[110] p-4 animate-fadeIn">
                             <div className="admin-panel rounded-3xl w-full max-w-[420px] flex flex-col shadow-2xl p-6 border border-[var(--glass-border)] relative">
-                                <button onClick={() => setNoteDialog({ isOpen: false, text: '' })} className="absolute top-4 left-4 w-8 h-8 rounded-full bg-[var(--input-bg)] flex items-center justify-center text-[var(--text-muted)] hover:text-[var(--error)] transition-all">
-                                    <i className="fas fa-times"></i>
+                                <button onClick={() => setNoteDialog({ isOpen: false, text: '' })} className="absolute top-4 left-4 w-8 h-8 rounded-full bg-[var(--input-bg)] flex items-center justify-center text-[var(--text-muted)] hover:text-[var(--error)] hover:bg-[rgba(239,68,68,0.1)] transition-all">
+                                    <i className="fas fa-times text-sm"></i>
                                 </button>
-                                <div className="text-[var(--text-main)] whitespace-pre-wrap text-sm leading-relaxed max-h-[300px] overflow-y-auto mt-6 pr-2">
+                                <div className="text-[var(--text-main)] whitespace-pre-wrap text-sm leading-relaxed max-h-[300px] overflow-y-auto mt-8 pr-2">
                                     {noteDialog.text}
                                 </div>
                             </div>
