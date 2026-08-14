@@ -161,7 +161,7 @@
             const selectRef = React.useRef(null);
 
             React.useEffect(() => {
-                if (!isOpen) return; // تحسين: تشغيل المستمع فقط عند فتح القائمة
+                if (!isOpen) return;
                 const handleClickOutside = (event) => {
                     if (selectRef.current && !selectRef.current.contains(event.target)) setIsOpen(false);
                 };
@@ -219,7 +219,7 @@
             }, [value]);
 
             React.useEffect(() => {
-                if (!isOpen) return; // تحسين: تشغيل المستمع فقط عند الفتح
+                if (!isOpen) return;
                 const handleClickOutside = (event) => {
                     if (pickerRef.current && !pickerRef.current.contains(event.target)) setIsOpen(false);
                 };
@@ -514,12 +514,11 @@
                 return a.id > b.id ? -1 : (a.id < b.id ? 1 : 0);
             };
 
-            // تحسين: إضافة دوال التنظيف off() لمنع تسرب الذاكرة
             React.useEffect(() => {
                 const accountsRef = database.ref('accounts');
                 const requestsRef = database.ref('requests');
                 const settingsRef = database.ref('settings');
-                const credsRef = database.ref('email_credentials');
+                const credsRef = database.ref('emails/credentials');
 
                 accountsRef.on('value', (snapshot) => {
                     const data = snapshot.val();
@@ -576,7 +575,7 @@
                 let emailsRef;
                 if (activeTab === 'emails') {
                     setIsFetchingEmails(true);
-                    emailsRef = database.ref('emails');
+                    emailsRef = database.ref('emails/inbox');
                     emailsRef.on('value', (snapshot) => {
                         const data = snapshot.val();
                         if (data) {
@@ -687,7 +686,6 @@
                 return filtered;
             };
 
-            // تحسين: حفظ النتيجة مؤقتاً لتسريع البحث
             const filteredAccounts = React.useMemo(() => filterData(accounts), [accounts, currentFilters, activeTab, settings]);
             const filteredRequests = React.useMemo(() => filterData(requests), [requests, currentFilters, activeTab, settings]);
 
@@ -1060,7 +1058,6 @@
                 return combinations;
             };
             
-            // تحسين: حفظ النتيجة مؤقتاً لتسريع فتح النافذة المنبثقة
             const combinationsMemo = React.useMemo(() => getAllCombinations(), [settings]);
 
             const selectCombination = (comb) => {
@@ -1202,7 +1199,6 @@
                 }
             };
 
-            // تحسين: حفظ المعرفات باستخدام useMemo لمنع العمليات الحسابية المتكررة
             const { fPlatformId, fPlanId, fTypeId, fDurId } = React.useMemo(() => {
                 let pId = settings.platforms.find(p => p.label === formData.platform)?.id;
                 let plId = settings.plans.find(p => p.label === formData.plan && (p.platformId === pId || p.platformName === formData.platform))?.id;
@@ -1527,7 +1523,7 @@
                                                                 </div>
                                                                 <div className="flex items-center gap-4 shrink-0 mt-1">
                                                                     <span className="text-[var(--primary)] text-sm font-bold">{timeAgoFormatter(email.date)}</span>
-                                                                    <button onClick={(e) => { e.stopPropagation(); setConfirmDialog({ isOpen: true, message: 'تأكيد حذف الرسالة؟', onConfirm: () => database.ref(`emails/${email.id}`).remove() }); }} className="text-[var(--text-muted)] hover:text-[var(--error)] transition-colors p-1" title="حذف الرسالة">
+                                                                    <button onClick={(e) => { e.stopPropagation(); setConfirmDialog({ isOpen: true, message: 'تأكيد حذف الرسالة؟', onConfirm: () => database.ref(`emails/inbox/${email.id}`).remove() }); }} className="text-[var(--text-muted)] hover:text-[var(--error)] transition-colors p-1" title="حذف الرسالة">
                                                                         <i className="fas fa-trash-alt text-sm"></i>
                                                                     </button>
                                                                     <i className={`fas fa-chevron-down text-[var(--text-muted)] text-sm transition-transform duration-300 ${isExpanded ? 'rotate-180 text-[var(--primary)]' : ''}`}></i>
@@ -1893,7 +1889,7 @@
                                 <form onSubmit={(e) => {
                                     e.preventDefault();
                                     if(newCredEmail && newCredPass) {
-                                        database.ref('email_credentials').push({ email: newCredEmail, password: newCredPass });
+                                        database.ref('emails/credentials').push({ email: newCredEmail, password: newCredPass });
                                         setNewCredEmail(''); setNewCredPass('');
                                         setIsAddEmailModalOpen(false);
                                     }
