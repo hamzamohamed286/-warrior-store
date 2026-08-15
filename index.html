@@ -507,13 +507,6 @@
                 { id: 'reqPhone', icon: 'fas fa-mobile-alt', label: 'رقم الجوال' }
             ];
 
-            const sortByStartDateDesc = (a, b) => {
-                const dateA = new Date(a.startDate || 0).getTime();
-                const dateB = new Date(b.startDate || 0).getTime();
-                if (dateB !== dateA) return dateB - dateA;
-                return a.id > b.id ? -1 : (a.id < b.id ? 1 : 0);
-            };
-
             React.useEffect(() => {
                 const accountsRef = database.ref('accounts');
                 const requestsRef = database.ref('requests');
@@ -522,12 +515,12 @@
 
                 accountsRef.on('value', (snapshot) => {
                     const data = snapshot.val();
-                    setAccounts(data ? Object.keys(data).map(key => ({ id: key, ...data[key] })).sort(sortByStartDateDesc) : []);
+                    setAccounts(data ? Object.keys(data).map(key => ({ id: key, ...data[key] })) : []);
                 });
                 
                 requestsRef.on('value', (snapshot) => {
                     const data = snapshot.val();
-                    setRequests(data ? Object.keys(data).map(key => ({ id: key, ...data[key] })).sort(sortByStartDateDesc) : []);
+                    setRequests(data ? Object.keys(data).map(key => ({ id: key, ...data[key] })) : []);
                 });
 
                 settingsRef.on('value', snap => {
@@ -686,8 +679,27 @@
                 return filtered;
             };
 
-            const filteredAccounts = React.useMemo(() => filterData(accounts), [accounts, currentFilters, activeTab, settings]);
-            const filteredRequests = React.useMemo(() => filterData(requests), [requests, currentFilters, activeTab, settings]);
+            const processAndSortData = (dataArray) => {
+                let filtered = filterData(dataArray);
+                
+                filtered.sort((a, b) => {
+                    if (currentFilters?.status === 'expired') {
+                        const dateA = new Date(a.endDate || 0).getTime();
+                        const dateB = new Date(b.endDate || 0).getTime();
+                        if (dateB !== dateA) return dateB - dateA;
+                        return a.id > b.id ? -1 : (a.id < b.id ? 1 : 0);
+                    } else {
+                        const dateA = new Date(a.startDate || 0).getTime();
+                        const dateB = new Date(b.startDate || 0).getTime();
+                        if (dateB !== dateA) return dateB - dateA;
+                        return a.id > b.id ? -1 : (a.id < b.id ? 1 : 0);
+                    }
+                });
+                return filtered;
+            };
+
+            const filteredAccounts = React.useMemo(() => processAndSortData(accounts), [accounts, currentFilters, activeTab, settings]);
+            const filteredRequests = React.useMemo(() => processAndSortData(requests), [requests, currentFilters, activeTab, settings]);
 
             const handleSave = (e) => {
                 e.preventDefault();
@@ -1545,21 +1557,20 @@
                                                             </div>
                                                             
                                                             {isExpanded && (
-                                                                <div className="border-t border-[var(--glass-border)] bg-[rgba(0,0,0,0.4)] animate-fadeIn">
+                                                                <div className="border-t border-[var(--glass-border)] bg-[rgba(255,255,255,0.02)] relative">
                                                                     <iframe 
                                                                         srcDoc={`<base target='_blank'>${email.body || ""}`}
                                                                         sandbox="allow-same-origin allow-popups"
-                                                                        className="w-full bg-white border-none shadow-inner"
-                                                                        style={{ minHeight: '200px', maxHeight: '70vh' }}
+                                                                        className="w-full bg-white border-none block"
+                                                                        style={{ height: '450px' }}
                                                                         onLoad={(e) => {
-                                                                            const iframe = e.target;
                                                                             try {
-                                                                                const doc = iframe.contentWindow.document;
+                                                                                const doc = e.target.contentWindow.document;
                                                                                 if (!doc.getElementById('injected-styles')) {
                                                                                     const style = doc.createElement('style');
                                                                                     style.id = 'injected-styles';
                                                                                     style.textContent = `
-                                                                                        body { margin:0; padding:20px; font-family:sans-serif; overflow-y:auto; overflow-x:hidden; color: #333; } 
+                                                                                        body { margin:0; padding:20px; font-family:sans-serif; overflow-y:auto; overflow-x:hidden; color: #111; background: #fff; } 
                                                                                         img { max-width: 100% !important; height: auto !important; }
                                                                                         ::-webkit-scrollbar { width: 6px; }
                                                                                         ::-webkit-scrollbar-track { background: transparent; }
@@ -1567,8 +1578,6 @@
                                                                                     `;
                                                                                     doc.head.appendChild(style);
                                                                                 }
-                                                                                const contentHeight = Math.max(doc.body.scrollHeight, doc.documentElement.scrollHeight);
-                                                                                iframe.style.height = (contentHeight + 40) + 'px';
                                                                             } catch(err) {}
                                                                         }}
                                                                     ></iframe>
